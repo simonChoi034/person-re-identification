@@ -3,7 +3,7 @@ import argparse
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN, EarlyStopping
 from tensorflow.keras.experimental import LinearCosineDecay
 from tensorflow.keras.losses import SparseCategoricalCrossentropy as CrossEntropy
-from tensorflow.keras.metrics import Precision, Recall, SparseCategoricalCrossentropy, SparseCategoricalAccuracy
+from tensorflow.keras.metrics import SparseCategoricalCrossentropy, SparseCategoricalAccuracy
 from tensorflow.keras.optimizers import Adam
 
 from config import cfg
@@ -24,20 +24,18 @@ class Trainer:
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone)
         self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
-                                              decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs)
-        self.optimizer = Adam(learning_rate=self.lr_scheduler)
+                                              decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
+        self.optimizer = Adam(learning_rate=0.01)
 
         self.tensorboard_callback = TensorBoard(log_dir="./logs/{}".format(cfg.backbone), write_graph=True,
                                                 write_images=True, update_freq=cfg.step_to_log,
                                                 embeddings_freq=cfg.step_to_log)
-        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}".format(cfg.backbone), save_best_only=True,
-                                                   mode='max', monitor='val_acc', save_freq=cfg.step_to_log)
-
+        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}".format(cfg.backbone))
 
     def train(self):
         self.model.compile(optimizer=self.optimizer, loss=self.loss_fn,
                            metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
-        self.model.fit(self.dataset_train, epochs=cfg.train_epochs,
+        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
                        callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
                                   EarlyStopping()])
 

@@ -1,9 +1,10 @@
-from typing import List, Dict, Tuple, Any
+import glob
+import os
 import random
+from typing import List, Tuple, Any
 
 import tensorflow as tf
-import os
-import glob
+
 
 class DatasetGenerator:
     def __init__(self, dataset_path: str):
@@ -46,7 +47,8 @@ class DatasetGenerator:
 
 
 class Dataset:
-    def __init__(self, generator: DatasetGenerator, image_size: List, batch_size: int, buffer_size: int, prefetch_size: int, mode="train"):
+    def __init__(self, generator: DatasetGenerator, image_size: List, batch_size: int, buffer_size: int,
+                 prefetch_size: int, mode="train"):
         self.generator = generator
         self.image_size = image_size
         self.batch_size = batch_size
