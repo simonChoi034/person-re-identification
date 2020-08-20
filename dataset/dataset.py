@@ -62,7 +62,7 @@ class Dataset:
         img = tf.image.resize(img, self.image_size)
         img = tf.image.random_flip_left_right(img)
         img = tf.image.random_brightness(img, max_delta=0.4)
-        img = tf.image.random_saturation(img, 0.6, 1.4)
+        # img = tf.image.random_saturation(img, 0.6, 1.4)
         img = img / 127.5 - 1
         return img
 

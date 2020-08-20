@@ -5,9 +5,10 @@ import tensorflow as tf
 from tensorflow.keras.layers import BatchNormalization, Dense, Flatten, Dropout
 
 
-class Backbone(tf.keras.layers.Layer):
-    def __init__(self, model: str = "EfficientNetB0", freeze: bool = False, use_pretrain: bool = True):
-        super(Backbone, self).__init__()
+class BaseModel(tf.keras.layers.Layer):
+    def __init__(self, embedding_shape: int, w_decay: float = 5e-4, model: str = "EfficientNetB0",
+                 freeze_backbone: bool = False, use_pretrain: bool = True):
+        super(BaseModel, self).__init__()
 
         weights = "imagenet" if use_pretrain else None
 
@@ -16,22 +17,35 @@ class Backbone(tf.keras.layers.Layer):
                                                                     weights=weights)
 
         # freeze model for transfer learning
-        if freeze:
-            self.backbone_model.trainable = False
+        self.backbone_model.trainable = False if freeze_backbone else True
+
+        self.fc = FCLayer(embedding_shape=embedding_shape, w_decay=w_decay)
 
     def call(self, inputs: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
         x = self.backbone_model(inputs, training=training)
+        x = self.fc(x, training=training)
         return x
 
 
-class OutputLayer(tf.keras.layers.Layer):
+class FCLayer(tf.keras.layers.Layer):
     def __init__(self, embedding_shape: int, w_decay: float = 5e-4):
-        super(OutputLayer, self).__init__()
-        self.conv_batch_norm = BatchNormalization()
-        self.dense_batch_norm = BatchNormalization()
-        self.dropout = Dropout(rate=0.5)
+        super(FCLayer, self).__init__()
+        self.conv_batch_norm = BatchNormalization(axis=-1,
+                                                  scale=True,
+                                                  momentum=0.9,
+                                                  epsilon=2e-5,
+                                                  gamma_regularizer=tf.keras.regularizers.l2(
+                                                      l=5e-4),
+                                                  name='bn1')
+        self.dense_batch_norm = BatchNormalization(axis=-1,
+                                                   scale=False,
+                                                   momentum=0.9,
+                                                   epsilon=2e-5,
+                                                   name='fc1')
+        self.dropout = Dropout(rate=0.4)
         self.flatten = Flatten()
-        self.dense = Dense(embedding_shape, kernel_regularizer=tf.keras.regularizers.l2(w_decay))
+        self.dense = Dense(embedding_shape, kernel_regularizer=tf.keras.regularizers.l2(w_decay),
+                           kernel_initializer='glorot_normal')
 
     def call(self, inputs: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
         x = self.conv_batch_norm(inputs, training=training)
@@ -47,37 +61,57 @@ class ArcHead(tf.keras.layers.Layer):
 
     def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 64, **kwargs: Dict):
         super(ArcHead, self).__init__(**kwargs)
-        self.num_classes = num_classes
+        self.output_dim = num_classes
         self.margin = margin
         self.logist_scale = logist_scale
 
     def build(self, input_shape):
-        self.w = self.add_variable(
-            "weights", shape=[int(input_shape[-1]), self.num_classes])
-        self.cos_m = tf.identity(math.cos(self.margin), name='cos_m')
-        self.sin_m = tf.identity(math.sin(self.margin), name='sin_m')
-        self.th = tf.identity(math.cos(math.pi - self.margin), name='th')
-        self.mm = tf.multiply(self.sin_m, self.margin, name='mm')
+        self.kernel = self.add_weight(name='kernel',
+                                      shape=(input_shape[-1],
+                                             self.output_dim),
+                                      initializer='glorot_normal',
+                                      regularizer=tf.keras.regularizers.l2(
+                                          l=5e-4),
+                                      trainable=True)
+        super(ArcHead, self).build(input_shape)
 
-    def call(self, embds: tf.Tensor, labels: tf.Tensor) -> tf.Tensor:
-        normed_embds = tf.nn.l2_normalize(embds, axis=1, name='normed_embd')
-        normed_w = tf.nn.l2_normalize(self.w, axis=0, name='normed_weights')
+    def call(self, embedding: tf.Tensor, labels: tf.Tensor) -> tf.Tensor:
+        cos_m = math.cos(self.margin)
+        sin_m = math.sin(self.margin)
+        mm = sin_m * self.margin  # issue 1
+        threshold = math.cos(math.pi - self.margin)
+        # inputs and weights norm
+        embedding_norm = tf.norm(embedding, axis=1, keepdims=True)
+        embedding = embedding / embedding_norm
+        weights_norm = tf.norm(self.kernel, axis=0, keepdims=True)
+        weights = self.kernel / weights_norm
+        # cos(theta+m)
+        cos_t = tf.matmul(embedding, weights, name='cos_t')
+        cos_t2 = tf.square(cos_t, name='cos_2')
+        sin_t2 = tf.subtract(1., cos_t2, name='sin_2')
+        sin_t = tf.sqrt(sin_t2, name='sin_t')
+        cos_mt = self.logist_scale * tf.subtract(tf.multiply(cos_t, cos_m),
+                                                 tf.multiply(sin_t, sin_m), name='cos_mt')
 
-        cos_t = tf.matmul(normed_embds, normed_w, name='cos_t')
-        sin_t = tf.sqrt(1. - cos_t ** 2, name='sin_t')
+        # this condition controls the theta+m should in range [0, pi]
+        #      0<=theta+m<=pi
+        #     -m<=theta<=pi-m
+        cond_v = cos_t - threshold
+        cond = tf.cast(tf.nn.relu(cond_v, name='if_else'), dtype=tf.bool)
 
-        cos_mt = tf.subtract(
-            cos_t * self.cos_m, sin_t * self.sin_m, name='cos_mt')
+        keep_val = self.logist_scale * (cos_t - mm)
+        cos_mt_temp = tf.where(cond, cos_mt, keep_val)
 
-        cos_mt = tf.where(cos_t > self.th, cos_mt, cos_t - self.mm)
+        mask = tf.one_hot(labels, depth=self.output_dim, name='one_hot_mask')
+        # mask = tf.squeeze(mask, 1)
+        inv_mask = tf.subtract(1., mask, name='inverse_mask')
 
-        mask = tf.one_hot(tf.cast(labels, tf.int32), depth=self.num_classes,
-                          name='one_hot_mask')
+        s_cos_t = tf.multiply(tf.cast(self.logist_scale, dtype=tf.float32), cos_t, name='scalar_cos_t')
 
-        logists = tf.where(mask == 1., cos_mt, cos_t)
-        logists = tf.multiply(logists, self.logist_scale, 'arcface_logist')
+        output = tf.add(tf.multiply(s_cos_t, inv_mask), tf.multiply(
+            cos_mt_temp, mask), name='arcface_loss_output')
 
-        return logists
+        return output
 
 
 class ArcPersonModel(tf.keras.Model):
@@ -85,20 +119,19 @@ class ArcPersonModel(tf.keras.Model):
                  backbone: str = 'EfficientNetB0',
                  w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False):
         super(ArcPersonModel, self).__init__()
-        self.backbone = Backbone(model=backbone, use_pretrain=use_pretrain, freeze=freeze_backbone)
-        self.embedding = OutputLayer(embd_shape, w_decay)
+        self.base_model = BaseModel(embd_shape, w_decay=w_decay, model=backbone,
+                                    use_pretrain=use_pretrain, freeze_backbone=freeze_backbone)
         self.archead = ArcHead(num_classes=num_classes, margin=margin, logist_scale=logist_scale)
 
     def call(self, inputs: tf.Tensor, training: bool = None, mask: bool = None, **kwargs: Dict) -> tf.Tensor:
-        x = self.backbone(inputs)
-        embeddings = self.embedding(x)
+        embedding = self.base_model(inputs, training=training)
 
         if training:
             labels = kwargs['labels']
-            logist = self.archead(embds=embeddings, labels=labels)
+            logist = self.archead(embedding=embedding, labels=labels)
             return logist
         else:
-            return embeddings
+            return embedding
 
     def train_step(self, data):
         # Unpack the data. Its structure depends on your model and

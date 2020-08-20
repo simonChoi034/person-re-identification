@@ -1,14 +1,27 @@
 import argparse
 
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN, EarlyStopping
+import tensorflow as tf
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN
 from tensorflow.keras.experimental import LinearCosineDecay
 from tensorflow.keras.losses import SparseCategoricalCrossentropy as CrossEntropy
 from tensorflow.keras.metrics import SparseCategoricalCrossentropy, SparseCategoricalAccuracy
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, SGD
 
 from config import cfg
 from dataset.dataset import Dataset, DatasetGenerator
 from model.model import ArcPersonModel
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
 
 
 class Trainer:
@@ -21,23 +34,23 @@ class Trainer:
                                     buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
-        self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone)
+        self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
         self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
-        self.optimizer = Adam(learning_rate=0.01)
+        self.optimizer = Adam(learning_rate=self.lr_scheduler) if cfg.optimizer == "Adam" else SGD(learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True)
 
         self.tensorboard_callback = TensorBoard(log_dir="./logs/{}".format(cfg.backbone), write_graph=True,
                                                 write_images=True, update_freq=cfg.step_to_log,
                                                 embeddings_freq=cfg.step_to_log)
-        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}".format(cfg.backbone))
+        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/train".format(cfg.backbone))
 
     def train(self):
-        self.model.compile(optimizer=self.optimizer, loss=self.loss_fn,
+        self.model.compile(run_eagerly=False, optimizer=self.optimizer, loss=self.loss_fn,
                            metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
-                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping()])
+                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN()])
+        self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):
         self.model.evaluate(self.dataset_eval, return_dict=True, callbacks=[self.tensorboard_callback])

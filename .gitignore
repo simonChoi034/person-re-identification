@@ -130,4 +130,5 @@ dmypy.json
 
 logs/
 .idea/
+checkpoint/
 

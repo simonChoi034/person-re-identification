@@ -2,7 +2,8 @@ from easydict import EasyDict
 
 cfg = EasyDict()
 
-cfg.backbone = "EfficientNetB2"
+cfg.backbone = "MobileNetV2"
+cfg.optimizer = "Adam"
 cfg.image_size = [256, 128]
 cfg.buffer_size = 1000
 cfg.batch_size = 32
