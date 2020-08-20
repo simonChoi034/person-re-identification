@@ -13,8 +13,7 @@ class BaseModel(tf.keras.layers.Layer):
         weights = "imagenet" if use_pretrain else None
 
         assert model in dir(tf.keras.applications)
-        self.backbone_model = getattr(tf.keras.applications, model)(include_top=False, input_shape=(None, None, 3),
-                                                                    weights=weights)
+        self.backbone_model = getattr(tf.keras.applications, model)(include_top=False, weights=weights)
 
         # freeze model for transfer learning
         self.backbone_model.trainable = False if freeze_backbone else True
@@ -119,6 +118,7 @@ class ArcPersonModel(tf.keras.Model):
                  backbone: str = 'EfficientNetB0',
                  w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False):
         super(ArcPersonModel, self).__init__()
+        self.num_classes = num_classes
         self.base_model = BaseModel(embd_shape, w_decay=w_decay, model=backbone,
                                     use_pretrain=use_pretrain, freeze_backbone=freeze_backbone)
         self.archead = ArcHead(num_classes=num_classes, margin=margin, logist_scale=logist_scale)
@@ -137,12 +137,13 @@ class ArcPersonModel(tf.keras.Model):
         # Unpack the data. Its structure depends on your model and
         # on what you pass to `fit()`.
         x, y = data
+        one_hot_label = tf.one_hot(y, depth=self.num_classes)
 
         with tf.GradientTape() as tape:
             y_pred = self(inputs=x, labels=y, training=True)  # Forward pass
             # Compute the loss value
             # (the loss function is configured in `compile()`)
-            loss = self.compiled_loss(y, y_pred, regularization_losses=self.losses)
+            loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
 
         # Compute gradients
         trainable_vars = self.trainable_variables
@@ -157,10 +158,11 @@ class ArcPersonModel(tf.keras.Model):
     def test_step(self, data):
         # Unpack the data
         x, y = data
+        one_hot_label = tf.one_hot(y, self.num_classes)
         # Compute predictions
         y_pred = self(inputs=x, labels=y, training=True)
         # Updates the metrics tracking the loss
-        self.compiled_loss(y, y_pred, regularization_losses=self.losses)
+        self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.
         self.compiled_metrics.update_state(y, y_pred)
         # Return a dict mapping metric names to current value.

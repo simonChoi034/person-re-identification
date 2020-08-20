@@ -1,9 +1,9 @@
 import argparse
 
 import tensorflow as tf
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN, EarlyStopping
 from tensorflow.keras.experimental import LinearCosineDecay
-from tensorflow.keras.losses import SparseCategoricalCrossentropy as CrossEntropy
+from tensorflow.keras.losses import CategoricalCrossentropy as CrossEntropy
 from tensorflow.keras.metrics import SparseCategoricalCrossentropy, SparseCategoricalAccuracy
 from tensorflow.keras.optimizers import Adam, SGD
 
@@ -35,7 +35,7 @@ class Trainer:
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
-        self.loss_fn = CrossEntropy(from_logits=True)
+        self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler) if cfg.optimizer == "Adam" else SGD(learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True)
@@ -43,13 +43,13 @@ class Trainer:
         self.tensorboard_callback = TensorBoard(log_dir="./logs/{}".format(cfg.backbone), write_graph=True,
                                                 write_images=True, update_freq=cfg.step_to_log,
                                                 embeddings_freq=cfg.step_to_log)
-        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/train".format(cfg.backbone))
+        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/train".format(cfg.backbone), verbose=1, save_freq="epoch")
 
     def train(self):
         self.model.compile(run_eagerly=False, optimizer=self.optimizer, loss=self.loss_fn,
                            metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
-                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN()])
+                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(), EarlyStopping()])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):
