@@ -125,13 +125,7 @@ class ArcPersonModel(tf.keras.Model):
 
     def call(self, inputs: tf.Tensor, training: bool = None, mask: bool = None, **kwargs: Dict) -> tf.Tensor:
         embedding = self.base_model(inputs, training=training)
-
-        if training:
-            labels = kwargs['labels']
-            logist = self.archead(embedding=embedding, labels=labels)
-            return logist
-        else:
-            return embedding
+        return embedding
 
     def train_step(self, data):
         # Unpack the data. Its structure depends on your model and
@@ -140,7 +134,8 @@ class ArcPersonModel(tf.keras.Model):
         one_hot_label = tf.one_hot(y, depth=self.num_classes)
 
         with tf.GradientTape() as tape:
-            y_pred = self(inputs=x, labels=y, training=True)  # Forward pass
+            embedding = self(inputs=x, training=True)  # Forward pass
+            y_pred = self.archead(embedding=embedding, labels=y)
             # Compute the loss value
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
@@ -162,7 +157,8 @@ class ArcPersonModel(tf.keras.Model):
         x, y = data
         one_hot_label = tf.one_hot(y, self.num_classes)
         # Compute predictions
-        y_pred = self(inputs=x, labels=y, training=True)
+        embedding = self(inputs=x, training=True)  # Forward pass
+        y_pred = self.archead(embedding=embedding, labels=y)
         # Updates the metrics tracking the loss
         self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.
