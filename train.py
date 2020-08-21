@@ -38,12 +38,12 @@ class Trainer:
         self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
-        self.optimizer = Adam(learning_rate=self.lr_scheduler) if cfg.optimizer == "Adam" else SGD(learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True)
+        self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True, clipnorm=1)
 
         self.tensorboard_callback = TensorBoard(log_dir="./logs/{}".format(cfg.backbone), write_graph=True,
                                                 write_images=True, update_freq=cfg.step_to_log,
                                                 embeddings_freq=cfg.step_to_log)
-        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/train".format(cfg.backbone), verbose=1, save_freq="epoch")
+        self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/cp.ckpt".format(cfg.backbone), verbose=1, save_freq="epoch")
 
     def train(self):
         self.model.compile(run_eagerly=False, optimizer=self.optimizer, loss=self.loss_fn,

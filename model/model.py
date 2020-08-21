@@ -144,10 +144,12 @@ class ArcPersonModel(tf.keras.Model):
             # Compute the loss value
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
+            reg_loss = tf.reduce_sum(self.losses)
+            total_loss = loss + reg_loss
 
         # Compute gradients
         trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
+        gradients = tape.gradient(total_loss, trainable_vars)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         # Update metrics (includes the metric that tracks the loss)

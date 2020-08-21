@@ -18,7 +18,7 @@ class DatasetGenerator:
     def set_labels(self):
         image_list = list(map(lambda x: x.replace(self.dataset_path, ""), self.image_paths))
         label_list = list(map(lambda x: x.split("/")[-4:], image_list))
-        label_list = set(map(lambda x: x[0] + "_" + x[2], label_list))
+        label_list = sorted(list(set(map(lambda x: x[0] + "_" + x[2], label_list))))
         self.num_classes = len(label_list)
         self.label_mapping = {key: i for i, key in enumerate(label_list)}
 
@@ -59,7 +59,7 @@ class Dataset:
     def preprocess_image(self, img_path: str) -> tf.Tensor:
         img = tf.io.read_file(img_path)
         img = tf.image.decode_jpeg(img, channels=3)
-        img = tf.image.resize(img, self.image_size)
+        img = tf.image.resize_with_pad(img, self.image_size[0], self.image_size[1])
         img = tf.image.random_flip_left_right(img)
         img = tf.image.random_brightness(img, max_delta=0.4)
         # img = tf.image.random_saturation(img, 0.6, 1.4)
