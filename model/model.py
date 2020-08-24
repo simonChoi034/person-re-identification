@@ -126,7 +126,7 @@ class NormHead(tf.keras.layers.Layer):
 
 class ArcPersonModel(tf.keras.Model):
     def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 30, embd_shape: int = 512,
-                 backbone: str = 'EfficientNetB0',
+                 backbone: str = 'ResNet50',
                  w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False, train_arcloss=False):
         super(ArcPersonModel, self).__init__()
         self.num_classes = num_classes
@@ -152,9 +152,9 @@ class ArcPersonModel(tf.keras.Model):
         with tf.GradientTape() as tape:
             y_pred = self(inputs=x, training=True)  # Forward pass
             if self.train_arcloss:
-                y_pred = self.archead(embedding=y_pred, labels=y)
+                y_pred = self.archead(embedding=y_pred, labels=y, training=True)
             else:
-                y_pred = self.normhead(y_pred)
+                y_pred = self.normhead(y_pred, training=True)
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
             reg_loss = tf.reduce_sum(self.losses)
@@ -177,9 +177,9 @@ class ArcPersonModel(tf.keras.Model):
         # Compute predictions
         y_pred = self(inputs=x, training=True)  # Forward pass
         if self.train_arcloss:
-            y_pred = self.archead(embedding=y_pred, labels=y)
+            y_pred = self.archead(embedding=y_pred, labels=y, training=True)
         else:
-            y_pred = self.normhead(y_pred)
+            y_pred = self.normhead(y_pred, training=True)
         # Updates the metrics tracking the loss
         self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.
