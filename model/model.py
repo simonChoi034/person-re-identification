@@ -58,7 +58,7 @@ class FCLayer(tf.keras.layers.Layer):
 class ArcHead(tf.keras.layers.Layer):
     """ArcMarginPenaltyLogists"""
 
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 64, **kwargs: Dict):
+    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 30, **kwargs: Dict):
         super(ArcHead, self).__init__(**kwargs)
         self.output_dim = num_classes
         self.margin = margin
@@ -113,15 +113,31 @@ class ArcHead(tf.keras.layers.Layer):
         return output
 
 
+class NormHead(tf.keras.layers.Layer):
+    def __init__(self, num_classes: int, w_decay: float = 5e-4, **kwargs: Dict):
+        super(NormHead, self).__init__(**kwargs)
+        self.dense = Dense(num_classes, kernel_regularizer=tf.keras.regularizers.l2(w_decay))
+
+    def call(self, inputs: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
+        x = self.dense(inputs, training=training)
+        x = tf.keras.backend.l2_normalize(x, axis=-1)
+        return x
+
+
 class ArcPersonModel(tf.keras.Model):
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 64, embd_shape: int = 512,
+    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 30, embd_shape: int = 512,
                  backbone: str = 'EfficientNetB0',
-                 w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False):
+                 w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False, train_arcloss=False):
         super(ArcPersonModel, self).__init__()
         self.num_classes = num_classes
         self.base_model = BaseModel(embd_shape, w_decay=w_decay, model=backbone,
                                     use_pretrain=use_pretrain, freeze_backbone=freeze_backbone)
         self.archead = ArcHead(num_classes=num_classes, margin=margin, logist_scale=logist_scale)
+        self.normhead = NormHead(num_classes=num_classes, w_decay=w_decay)
+        self.train_arcloss = train_arcloss
+
+    def set_train_arcloss(self):
+        self.train_arcloss = True
 
     def call(self, inputs: tf.Tensor, training: bool = None, mask: bool = None, **kwargs: Dict) -> tf.Tensor:
         embedding = self.base_model(inputs, training=training)
@@ -134,9 +150,11 @@ class ArcPersonModel(tf.keras.Model):
         one_hot_label = tf.one_hot(y, depth=self.num_classes)
 
         with tf.GradientTape() as tape:
-            embedding = self(inputs=x, training=True)  # Forward pass
-            y_pred = self.archead(embedding=embedding, labels=y)
-            # Compute the loss value
+            y_pred = self(inputs=x, training=True)  # Forward pass
+            if self.train_arcloss:
+                y_pred = self.archead(embedding=y_pred, labels=y)
+            else:
+                y_pred = self.normhead(y_pred)
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
             reg_loss = tf.reduce_sum(self.losses)
@@ -157,8 +175,11 @@ class ArcPersonModel(tf.keras.Model):
         x, y = data
         one_hot_label = tf.one_hot(y, self.num_classes)
         # Compute predictions
-        embedding = self(inputs=x, training=True)  # Forward pass
-        y_pred = self.archead(embedding=embedding, labels=y)
+        y_pred = self(inputs=x, training=True)  # Forward pass
+        if self.train_arcloss:
+            y_pred = self.archead(embedding=y_pred, labels=y)
+        else:
+            y_pred = self.normhead(y_pred)
         # Updates the metrics tracking the loss
         self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.

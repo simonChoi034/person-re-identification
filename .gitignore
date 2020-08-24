@@ -131,4 +131,5 @@ dmypy.json
 logs/
 .idea/
 checkpoint/
+saved_model/
 

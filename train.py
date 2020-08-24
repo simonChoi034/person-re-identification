@@ -34,7 +34,7 @@ class Trainer:
                                     buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
-        self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
+        self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False, logist_scale=10)
         self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
@@ -42,14 +42,19 @@ class Trainer:
 
         self.tensorboard_callback = TensorBoard(log_dir="./logs/{}".format(cfg.backbone), write_graph=True,
                                                 write_images=True, update_freq=cfg.step_to_log,
-                                                embeddings_freq=cfg.step_to_log)
+                                                embeddings_freq=cfg.step_to_log, histogram_freq=cfg.step_to_log)
         self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/cp.ckpt".format(cfg.backbone), verbose=1, save_freq="epoch")
 
     def train(self):
-        self.model.compile(run_eagerly=False, optimizer=self.optimizer, loss=self.loss_fn,
+        self.model.compile(run_eagerly=True, optimizer=self.optimizer, loss=self.loss_fn,
                            metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
-        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
+        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=5,
                        callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(), EarlyStopping()])
+
+        self.model.set_train_arcloss()
+        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
+                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
+                                  EarlyStopping()])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):
