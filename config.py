@@ -2,7 +2,7 @@ from easydict import EasyDict
 
 cfg = EasyDict()
 
-cfg.backbone = "MobileNetV2"
+cfg.backbone = "OSNet"
 cfg.optimizer = "SGD"
 cfg.image_size = [256, 128]
 cfg.buffer_size = 1000

@@ -4,6 +4,8 @@ from typing import Dict
 import tensorflow as tf
 from tensorflow.keras.layers import BatchNormalization, Dense, Flatten, Dropout
 
+from model.backbone.osnet import OSNet
+
 
 class BaseModel(tf.keras.layers.Layer):
     def __init__(self, embedding_shape: int, w_decay: float = 5e-4, model: str = "EfficientNetB0",
@@ -12,8 +14,10 @@ class BaseModel(tf.keras.layers.Layer):
 
         weights = "imagenet" if use_pretrain else None
 
-        assert model in dir(tf.keras.applications)
-        self.backbone_model = getattr(tf.keras.applications, model)(include_top=False, weights=weights)
+        if model in dir(tf.keras.applications):
+            self.backbone_model = getattr(tf.keras.applications, model)(include_top=False, weights=weights)
+        elif model.lower() == "osnet":
+            self.backbone_model = OSNet(layers=[2, 2, 2], filters=[64, 256, 384, 512], IN=True)
 
         # freeze model for transfer learning
         self.backbone_model.trainable = False if freeze_backbone else True
@@ -175,11 +179,11 @@ class ArcPersonModel(tf.keras.Model):
         x, y = data
         one_hot_label = tf.one_hot(y, self.num_classes)
         # Compute predictions
-        y_pred = self(inputs=x, training=True)  # Forward pass
+        y_pred = self(inputs=x)  # Forward pass
         if self.train_arcloss:
-            y_pred = self.archead(embedding=y_pred, labels=y, training=True)
+            y_pred = self.archead(embedding=y_pred, labels=y)
         else:
-            y_pred = self.normhead(y_pred, training=True)
+            y_pred = self.normhead(y_pred)
         # Updates the metrics tracking the loss
         self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.

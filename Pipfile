@@ -10,6 +10,8 @@ opencv-python = "*"
 easydict = "*"
 keras = "*"
 tensorflow = "*"
+tensorflow-addons = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.7"
