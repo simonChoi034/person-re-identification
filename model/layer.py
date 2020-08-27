@@ -2,8 +2,7 @@ from typing import Union, List
 
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Layer, Conv2D, BatchNormalization, ReLU, LayerNormalization, Activation, \
-    GlobalAveragePooling2D
+from tensorflow.keras.layers import Layer, Conv2D, BatchNormalization, ReLU, LayerNormalization, Activation
 
 
 class MyConv2D(Layer):
@@ -70,7 +69,6 @@ class ChannelGate(Layer):
         self.num_gates = num_gates
         self.return_gates = return_gates
 
-        self.global_avg_pool = GlobalAveragePooling2D
         self.fc1 = MyConv2D(kernel_size=1, filters=filters // reduction, apply_norm=False, apply_activation=False)
         self.norm = LayerNormalization() if layer_norm else None
         self.relu = ReLU()
@@ -79,7 +77,7 @@ class ChannelGate(Layer):
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         x = inputs
-        x = self.global_avg_pool(x, training=training)
+        x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
         x = self.fc1(x, training=training)
         if self.norm is not None:
             x = self.norm(x, training=training)
