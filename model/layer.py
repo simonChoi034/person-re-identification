@@ -16,7 +16,6 @@ class MyConv2D(Layer):
             groups: int = 1,
             apply_activation: bool = True,
             apply_norm: bool = True,
-            IN: bool = False,
             **kwargs):
         super(MyConv2D, self).__init__(**kwargs)
         self.conv2d = Conv2D(
@@ -92,7 +91,7 @@ class ChannelGate(Layer):
 
 
 class OSBlock(Layer):
-    def __init__(self, filters: int, IN: bool = False, bottleneck_reduction: int = 4):
+    def __init__(self, filters: int, bottleneck_reduction: int = 4):
         super(OSBlock, self).__init__()
         self.mid_filters = filters // bottleneck_reduction
         self.conv1 = MyConv2D(kernel_size=1, filters=self.mid_filters)
@@ -102,7 +101,6 @@ class OSBlock(Layer):
         self.conv2d = Sequential([LightConv2D(kernel_size=3, filters=self.mid_filters) for _ in range(4)])
         self.gate = ChannelGate(self.mid_filters, self.mid_filters)
         self.conv3 = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
-        self.IN = BatchNormalization() if IN else None
         self.down_sample = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
         self.relu = ReLU()
 
@@ -114,14 +112,10 @@ class OSBlock(Layer):
         x2b = self.conv2b(x1, training=training)
         x2c = self.conv2c(x1, training=training)
         x2d = self.conv2d(x1, training=training)
-        x2 = self.gate(x2a, training=training) + self.gate(x2b, training=training) + self.gate(x2c,
-                                                                                               training=training) + self.gate(
-            x2d, training=training)
+        x2 = self.gate(x2a, training=training) + self.gate(x2b, training=training) + self.gate(x2c, training=training) + self.gate(x2d, training=training)
         x3 = self.conv3(x2, training=training)
 
         out = x3 + identity
-        if self.IN is not None:
-            out = self.IN(out, training=training)
 
         out = self.relu(out)
         return out

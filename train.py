@@ -83,6 +83,7 @@ class Trainer:
 
     def main(self):
         self.compile()
+        self.train_l1_softmax()
         self.train_arcloss()
         self.evaluate()
 

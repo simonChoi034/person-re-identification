@@ -8,17 +8,16 @@ from model.layer import MyConv2D, OSBlock
 
 
 class OSNet(tf.keras.Model):
-    def __init__(self, layers: List[int], filters: List[int], feature_dim: int = 512, IN: bool = False):
+    def __init__(self, layers: List[int], filters: List[int]):
         super(OSNet, self).__init__()
-        self.feature_dim = feature_dim
 
-        self.conv1 = MyConv2D(kernel_size=7, filters=filters[0], strides=2, IN=IN)
+        self.conv1 = MyConv2D(kernel_size=7, filters=filters[0], strides=2)
         self.max_pool = MaxPooling2D(pool_size=3, strides=2, padding='same')
-        self.conv2 = Sequential([OSBlock(filters=filters[1], IN=IN) for _ in range(layers[0])])
+        self.conv2 = Sequential([OSBlock(filters=filters[1]) for _ in range(layers[0])])
         self.reduction1 = Sequential([MyConv2D(kernel_size=1, filters=filters[1]), AveragePooling2D(2, strides=2)])
-        self.conv3 = Sequential([OSBlock(filters=filters[2], IN=IN) for _ in range(layers[1])])
+        self.conv3 = Sequential([OSBlock(filters=filters[2]) for _ in range(layers[1])])
         self.reduction2 = Sequential([MyConv2D(kernel_size=1, filters=filters[2]), AveragePooling2D(2, strides=2)])
-        self.conv4 = Sequential([OSBlock(filters=filters[3], IN=IN) for _ in range(layers[2])])
+        self.conv4 = Sequential([OSBlock(filters=filters[3]) for _ in range(layers[2])])
         self.conv5 = MyConv2D(kernel_size=1, filters=filters[3])
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:

@@ -17,7 +17,7 @@ class BaseModel(tf.keras.layers.Layer):
         if model in dir(tf.keras.applications):
             self.backbone_model = getattr(tf.keras.applications, model)(include_top=False, weights=weights)
         elif model.lower() == "osnet":
-            self.backbone_model = OSNet(layers=[2, 2, 2], filters=[64, 256, 384, 512], IN=True)
+            self.backbone_model = OSNet(layers=[2, 2, 2], filters=[64, 256, 384, 512])
 
         # freeze model for transfer learning
         self.backbone_model.trainable = False if freeze_backbone else True
