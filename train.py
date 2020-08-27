@@ -54,24 +54,27 @@ class Trainer:
                                                    save_freq="epoch", period=5)
 
     def compile(self):
+        self.model.compile(run_eagerly=True, optimizer=self.optimizer, loss=self.loss_fn,
+                           metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
+
         # load latest checkpoint
         latest = tf.train.latest_checkpoint("./checkpoint/{}".format(cfg.backbone))
         if latest:
             print("Load from checkpoint {}".format(latest))
-            self.model.load_weights(latest)
+            checkpoint_manager = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, net=self.model)
+            checkpoint_manager.restore(latest)
 
-        self.model.compile(run_eagerly=True, optimizer=self.optimizer, loss=self.loss_fn,
-                           metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
-
-    def train(self):
+    def train_l1_softmax(self):
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=50,
                        callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping()])
+                                  EarlyStopping(monitor='loss', patience=5)])
+        self.model.save('./saved_model/{}'.format(cfg.backbone))
 
+    def train_arcloss(self):
         self.model.set_train_arcloss()
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
                        callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping()])
+                                  EarlyStopping(monitor='loss', patience=5)])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):
@@ -80,7 +83,7 @@ class Trainer:
 
     def main(self):
         self.compile()
-        self.train()
+        self.train_arcloss()
         self.evaluate()
 
 
