@@ -37,8 +37,7 @@ class Trainer:
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False,
                                     logist_scale=30)
         self.loss_fn = CrossEntropy(from_logits=True)
-        self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
-                                              decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
+        self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr, decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(
             learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True, clipnorm=1)
 
@@ -65,16 +64,16 @@ class Trainer:
             checkpoint_manager.restore(latest)
 
     def train_l1_softmax(self):
-        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=50,
+        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.warmup_epochs,
                        callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(monitor='loss', patience=5)])
+                                  EarlyStopping(monitor='loss', patience=3)])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def train_arcloss(self):
         self.model.set_train_arcloss()
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
                        callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(monitor='loss', patience=5)])
+                                  EarlyStopping(monitor='loss', patience=3)])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):
