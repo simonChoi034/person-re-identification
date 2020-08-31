@@ -74,8 +74,8 @@ class ArcHead(tf.keras.layers.Layer):
         self.th = tf.identity(math.cos(math.pi - self.margin), name='th')
         self.mm = tf.multiply(self.sin_m, self.margin, name='mm')
 
-    def call(self, embds, labels):
-        normed_embds = tf.nn.l2_normalize(embds, axis=1, name='normed_embd')
+    def call(self, embedding: tf.Tensor, labels: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
+        normed_embds = tf.nn.l2_normalize(embedding, axis=1, name='normed_embd')
         normed_w = tf.nn.l2_normalize(self.w, axis=0, name='normed_weights')
 
         cos_t = tf.matmul(normed_embds, normed_w, name='cos_t')
