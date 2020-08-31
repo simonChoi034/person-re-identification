@@ -1,49 +1,35 @@
 import argparse
 
-import matplotlib.pyplot as plt
+
 import numpy as np
 import tensorflow as tf
-from mpl_toolkits.mplot3d import Axes3D
 
 from config import cfg
-from dataset.dataset import Dataset, DatasetGenerator
+from scipy.spatial.distance import cosine, euclidean
 
 model = tf.keras.models.load_model('./saved_model/{}'.format(cfg.backbone))
 
-
-def main(dataset_path):
-    dataset_generator = DatasetGenerator(dataset_path=dataset_path)
-    dataset_train = Dataset(generator=dataset_generator, image_size=cfg.image_size, batch_size=cfg.batch_size,
-                            buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
-                            mode="train").create_dataset()
-
-    embeddings = None
-    true_label = None
-    for x, y in dataset_train:
-        predictions = model.predict(x)
-        if embeddings is None:
-            embeddings = predictions
-            true_label = y
-        else:
-            embeddings = np.concatenate([embeddings, predictions], axis=1)
-            true_label = np.concatenate([true_label, y], axis=0)
-
-    embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
-
-    # plot
-    fig2 = plt.figure()
-    ax2 = Axes3D(fig2)
-    for c in range(len(np.unique(true_label))):
-        ax2.plot(embeddings[true_label == c, 0], embeddings[true_label == c, 1], embeddings[true_label == c, 2],
-                 '.', alpha=0.1)
-    plt.title('ArcFace')
-
-    plt.show()
+def tf_imread(file_path):
+    img = tf.io.read_file(file_path)
+    img = tf.image.decode_jpeg(img, channels=3)
+    img = tf.image.resize(img, (256, 128))
+    img = tf.image.convert_image_dtype(img, tf.float32)
+    img = (img - 0.5) * 2
+    return tf.expand_dims(img, 0)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train detection model')
-    parser.add_argument('--dataset_path', type=str)
-    args = parser.parse_args()
+person_A = tf_imread('/home/simon/Downloads/Market-1501-v15.09.15/bounding_box_test/-1_c1s1_022176_02.jpg')
+person_B = tf_imread('/home/simon/Downloads/Market-1501-v15.09.15/bounding_box_test/-1_c1s1_031226_01.jpg')
 
-    main(args.dataset_path)
+persons = tf.concat([person_A, person_B], axis=0)
+A = model(persons)
+
+emb_a = A[0]
+emb_b = A[1]
+
+emb_a /= np.linalg.norm(emb_a)
+emb_b /= np.linalg.norm(emb_b)
+
+print(cosine(emb_a, emb_b))
+
+embedding_score = float(np.clip(1 - cosine(emb_a, emb_b), a_min=0, a_max=1))

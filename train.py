@@ -66,14 +66,14 @@ class Trainer:
     def train_l1_softmax(self):
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.warmup_epochs,
                        callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(monitor='loss', patience=3)])
+                                  EarlyStopping(patience=3)])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def train_arcloss(self):
         self.model.set_train_arcloss()
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
                        callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(monitor='loss', patience=3)])
+                                  EarlyStopping(patience=3)])
         self.model.save('./saved_model/{}'.format(cfg.backbone))
 
     def evaluate(self):

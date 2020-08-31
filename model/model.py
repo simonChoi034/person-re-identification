@@ -62,7 +62,7 @@ class FCLayer(tf.keras.layers.Layer):
 class ArcHead(tf.keras.layers.Layer):
     """ArcMarginPenaltyLogists"""
 
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 30, **kwargs: Dict):
+    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 10, **kwargs: Dict):
         super(ArcHead, self).__init__(**kwargs)
         self.output_dim = num_classes
         self.margin = margin
@@ -129,7 +129,7 @@ class NormHead(tf.keras.layers.Layer):
 
 
 class ArcPersonModel(tf.keras.Model):
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 30, embd_shape: int = 512,
+    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 10, embd_shape: int = 512,
                  backbone: str = 'ResNet50',
                  w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False, train_arcloss=False):
         super(ArcPersonModel, self).__init__()
