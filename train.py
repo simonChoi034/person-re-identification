@@ -35,7 +35,7 @@ class Trainer:
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False,
-                                    logist_scale=10)
+                                    logist_scale=64)
         self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr, decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(

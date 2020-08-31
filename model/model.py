@@ -60,61 +60,39 @@ class FCLayer(tf.keras.layers.Layer):
 
 
 class ArcHead(tf.keras.layers.Layer):
-    """ArcMarginPenaltyLogists"""
-
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 10, **kwargs: Dict):
+    def __init__(self, num_classes, margin=0.5, logist_scale=64, **kwargs):
         super(ArcHead, self).__init__(**kwargs)
-        self.output_dim = num_classes
+        self.num_classes = num_classes
         self.margin = margin
         self.logist_scale = logist_scale
 
     def build(self, input_shape):
-        self.kernel = self.add_weight(name='kernel',
-                                      shape=(input_shape[-1],
-                                             self.output_dim),
-                                      initializer='glorot_normal',
-                                      regularizer=tf.keras.regularizers.l2(
-                                          l=5e-4),
-                                      trainable=True)
-        super(ArcHead, self).build(input_shape)
+        self.w = self.add_variable(
+            "weights", shape=[int(input_shape[-1]), self.num_classes])
+        self.cos_m = tf.identity(math.cos(self.margin), name='cos_m')
+        self.sin_m = tf.identity(math.sin(self.margin), name='sin_m')
+        self.th = tf.identity(math.cos(math.pi - self.margin), name='th')
+        self.mm = tf.multiply(self.sin_m, self.margin, name='mm')
 
-    def call(self, embedding: tf.Tensor, labels: tf.Tensor) -> tf.Tensor:
-        cos_m = math.cos(self.margin)
-        sin_m = math.sin(self.margin)
-        mm = sin_m * self.margin  # issue 1
-        threshold = math.cos(math.pi - self.margin)
-        # inputs and weights norm
-        embedding_norm = tf.norm(embedding, axis=1, keepdims=True)
-        embedding = embedding / embedding_norm
-        weights_norm = tf.norm(self.kernel, axis=0, keepdims=True)
-        weights = self.kernel / weights_norm
-        # cos(theta+m)
-        cos_t = tf.matmul(embedding, weights, name='cos_t')
-        cos_t2 = tf.square(cos_t, name='cos_2')
-        sin_t2 = tf.subtract(1., cos_t2, name='sin_2')
-        sin_t = tf.sqrt(sin_t2, name='sin_t')
-        cos_mt = self.logist_scale * tf.subtract(tf.multiply(cos_t, cos_m),
-                                                 tf.multiply(sin_t, sin_m), name='cos_mt')
+    def call(self, embds, labels):
+        normed_embds = tf.nn.l2_normalize(embds, axis=1, name='normed_embd')
+        normed_w = tf.nn.l2_normalize(self.w, axis=0, name='normed_weights')
 
-        # this condition controls the theta+m should in range [0, pi]
-        #      0<=theta+m<=pi
-        #     -m<=theta<=pi-m
-        cond_v = cos_t - threshold
-        cond = tf.cast(tf.nn.relu(cond_v, name='if_else'), dtype=tf.bool)
+        cos_t = tf.matmul(normed_embds, normed_w, name='cos_t')
+        sin_t = tf.sqrt(1. - cos_t ** 2, name='sin_t')
 
-        keep_val = self.logist_scale * (cos_t - mm)
-        cos_mt_temp = tf.where(cond, cos_mt, keep_val)
+        cos_mt = tf.subtract(
+            cos_t * self.cos_m, sin_t * self.sin_m, name='cos_mt')
 
-        mask = tf.one_hot(labels, depth=self.output_dim, name='one_hot_mask')
-        # mask = tf.squeeze(mask, 1)
-        inv_mask = tf.subtract(1., mask, name='inverse_mask')
+        cos_mt = tf.where(cos_t > self.th, cos_mt, cos_t - self.mm)
 
-        s_cos_t = tf.multiply(tf.cast(self.logist_scale, dtype=tf.float32), cos_t, name='scalar_cos_t')
+        mask = tf.one_hot(tf.cast(labels, tf.int32), depth=self.num_classes,
+                          name='one_hot_mask')
 
-        output = tf.add(tf.multiply(s_cos_t, inv_mask), tf.multiply(
-            cos_mt_temp, mask), name='arcface_loss_output')
+        logists = tf.where(mask == 1., cos_mt, cos_t)
+        logists = tf.multiply(logists, self.logist_scale, 'arcface_logist')
 
-        return output
+        return logists
 
 
 class NormHead(tf.keras.layers.Layer):
@@ -128,7 +106,7 @@ class NormHead(tf.keras.layers.Layer):
 
 
 class ArcPersonModel(tf.keras.Model):
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 10, embd_shape: int = 512,
+    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 64, embd_shape: int = 512,
                  backbone: str = 'ResNet50',
                  w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False, train_arcloss=False):
         super(ArcPersonModel, self).__init__()
