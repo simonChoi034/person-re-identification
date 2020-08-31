@@ -124,7 +124,6 @@ class NormHead(tf.keras.layers.Layer):
 
     def call(self, inputs: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
         x = self.dense(inputs, training=training)
-        x = tf.keras.backend.l2_normalize(x, axis=-1)
         return x
 
 
