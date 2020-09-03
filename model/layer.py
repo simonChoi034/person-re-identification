@@ -3,6 +3,7 @@ from typing import Union, List
 import tensorflow as tf
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Layer, Conv2D, BatchNormalization, ReLU, LayerNormalization, Activation
+from tensorflow_addons.layers import InstanceNormalization
 
 
 class MyConv2D(Layer):
@@ -16,6 +17,7 @@ class MyConv2D(Layer):
             groups: int = 1,
             apply_activation: bool = True,
             apply_norm: bool = True,
+            use_IN: bool = False,
             **kwargs):
         super(MyConv2D, self).__init__(**kwargs)
         self.conv2d = Conv2D(
@@ -31,7 +33,12 @@ class MyConv2D(Layer):
         self.activation = ReLU()
         self.apply_activation = apply_activation
         self.apply_batchnorm = apply_norm
-        self.norm = BatchNormalization()
+        self.norm = InstanceNormalization(
+            axis=3,
+            center=True,
+            scale=True,
+            beta_initializer="random_uniform",
+            gamma_initializer="random_uniform") if use_IN else BatchNormalization()
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         x = self.conv2d(inputs)
@@ -57,8 +64,16 @@ class LightConv2D(Layer):
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         x = self.conv1(inputs, training=training)
         x = self.conv2(x, training=training)
-
         return x
+
+
+class LightConvStream(Layer):
+    def __init__(self, kernel_size, filters, depth):
+        super(LightConvStream, self).__init__()
+        self.convs = Sequential([LightConv2D(filters=filters, kernel_size=kernel_size) for _ in range(depth)])
+
+    def call(self, inputs: tf.Tensor, training: bool = False, **kwargs):
+        return self.convs(inputs, training=training)
 
 
 class ChannelGate(Layer):
@@ -69,7 +84,7 @@ class ChannelGate(Layer):
         self.return_gates = return_gates
 
         self.fc1 = MyConv2D(kernel_size=1, filters=filters // reduction, apply_norm=False, apply_activation=False)
-        self.norm = LayerNormalization() if layer_norm else None
+        self.norm = LayerNormalization(axis=1, center=True, scale=True) if layer_norm else None
         self.relu = ReLU()
         self.fc2 = MyConv2D(kernel_size=1, filters=num_gates, apply_norm=False, apply_activation=False)
         self.gate_activation = Activation(gate_activation)
@@ -91,18 +106,26 @@ class ChannelGate(Layer):
 
 
 class OSBlock(Layer):
-    def __init__(self, filters: int, bottleneck_reduction: int = 4):
+    def __init__(self, filters: int, bottleneck_reduction: int = 4, use_IN: bool = False):
         super(OSBlock, self).__init__()
         self.mid_filters = filters // bottleneck_reduction
         self.conv1 = MyConv2D(kernel_size=1, filters=self.mid_filters)
-        self.conv2a = LightConv2D(kernel_size=3, filters=self.mid_filters)
-        self.conv2b = Sequential([LightConv2D(kernel_size=3, filters=self.mid_filters) for _ in range(2)])
-        self.conv2c = Sequential([LightConv2D(kernel_size=3, filters=self.mid_filters) for _ in range(3)])
-        self.conv2d = Sequential([LightConv2D(kernel_size=3, filters=self.mid_filters) for _ in range(4)])
+        self.conv2a = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=1)
+        self.conv2b = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=2)
+        self.conv2c = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=3)
+        self.conv2d = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=4)
         self.gate = ChannelGate(self.mid_filters, self.mid_filters)
         self.conv3 = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
         self.down_sample = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
         self.relu = ReLU()
+        self.use_IN = use_IN
+        self.norm = InstanceNormalization(
+            axis=3,
+            center=True,
+            scale=True,
+            beta_initializer="random_uniform",
+            gamma_initializer="random_uniform"
+        )
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         identity = self.down_sample(inputs, training=training)
@@ -114,6 +137,9 @@ class OSBlock(Layer):
         x2d = self.conv2d(x1, training=training)
         x2 = self.gate(x2a, training=training) + self.gate(x2b, training=training) + self.gate(x2c, training=training) + self.gate(x2d, training=training)
         x3 = self.conv3(x2, training=training)
+
+        if self.use_IN:
+            x3 = self.norm(x3, training=training)
 
         out = x3 + identity
 

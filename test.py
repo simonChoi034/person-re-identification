@@ -4,10 +4,16 @@ import argparse
 import numpy as np
 import tensorflow as tf
 
+try:
+    physical_devices = tf.config.experimental.list_physical_devices("GPU")
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+except:
+    pass
+
 from config import cfg
 from scipy.spatial.distance import cosine, euclidean
 
-model = tf.keras.models.load_model('./saved_model/{}'.format(cfg.backbone))
+model = tf.keras.models.load_model('./saved_model/{}_arcface'.format(cfg.backbone))
 
 def tf_imread(file_path):
     img = tf.io.read_file(file_path)

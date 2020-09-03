@@ -8,7 +8,7 @@ from model.backbone.osnet import OSNet
 
 
 class BaseModel(tf.keras.layers.Layer):
-    def __init__(self, embedding_shape: int, w_decay: float = 5e-4, model: str = "EfficientNetB0",
+    def __init__(self, embedding_shape: int, w_decay: float = 5e-4, model: str = "OSNet",
                  freeze_backbone: bool = False, use_pretrain: bool = True):
         super(BaseModel, self).__init__()
 
@@ -37,18 +37,34 @@ class FCLayer(tf.keras.layers.Layer):
                                                   scale=True,
                                                   momentum=0.9,
                                                   epsilon=2e-5,
+                                                  renorm=True,
+                                                  renorm_clipping={'rmax': 3,
+                                                                   'rmin': 0.3333,
+                                                                   'dmax': 5},
+                                                  renorm_momentum=0.9,
+                                                  beta_regularizer=tf.keras.regularizers.l2(
+                                                      l=5e-4),
                                                   gamma_regularizer=tf.keras.regularizers.l2(
                                                       l=5e-4),
+                                                  gamma_initializer='ones',
                                                   name='bn1')
         self.dense_batch_norm = BatchNormalization(axis=-1,
                                                    scale=False,
                                                    momentum=0.9,
                                                    epsilon=2e-5,
+                                                   renorm=True,
+                                                   renorm_clipping={'rmax': 3,
+                                                                    'rmin': 0.3333,
+                                                                    'dmax': 5},
+                                                   renorm_momentum=0.9,
+                                                   beta_regularizer=tf.keras.regularizers.l2(
+                                                       l=5e-4),
                                                    name='fc1')
-        self.dropout = Dropout(rate=0.4)
+        self.dropout = Dropout(rate=0.5)
         self.flatten = Flatten()
         self.dense = Dense(embedding_shape, kernel_regularizer=tf.keras.regularizers.l2(w_decay),
-                           kernel_initializer='glorot_normal')
+                           bias_regularizer=tf.keras.regularizers.l2(
+                               l=5e-4), kernel_initializer='glorot_normal')
 
     def call(self, inputs: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
         x = self.conv_batch_norm(inputs, training=training)
@@ -67,12 +83,20 @@ class ArcHead(tf.keras.layers.Layer):
         self.logist_scale = logist_scale
 
     def build(self, input_shape):
-        self.w = self.add_variable(
-            "weights", shape=[int(input_shape[-1]), self.num_classes])
+        self.w = self.add_weight(
+            name='kernel',
+            shape=[int(input_shape[-1]), self.num_classes],
+            initializer='glorot_normal',
+            regularizer=tf.keras.regularizers.l2(
+                l=5e-4),
+            trainable=True
+        )
         self.cos_m = tf.identity(math.cos(self.margin), name='cos_m')
         self.sin_m = tf.identity(math.sin(self.margin), name='sin_m')
         self.th = tf.identity(math.cos(math.pi - self.margin), name='th')
         self.mm = tf.multiply(self.sin_m, self.margin, name='mm')
+
+        super(ArcHead, self).build(input_shape)
 
     def call(self, embedding: tf.Tensor, labels: tf.Tensor, training: bool = None, **kwargs: Dict) -> tf.Tensor:
         normed_embds = tf.nn.l2_normalize(embedding, axis=1, name='normed_embd')
@@ -106,19 +130,24 @@ class NormHead(tf.keras.layers.Layer):
 
 
 class ArcPersonModel(tf.keras.Model):
-    def __init__(self, num_classes: int, margin: float = 0.5, logist_scale: int = 64, embd_shape: int = 512,
-                 backbone: str = 'ResNet50',
-                 w_decay: float = 5e-4, use_pretrain: bool = True, freeze_backbone: bool = False, train_arcloss=False):
+    def __init__(
+            self,
+            num_classes: int,
+            margin: float = 0.5,
+            logist_scale: int = 64,
+            embd_shape: int = 512,
+            backbone: str = 'OSNet',
+            w_decay: float = 5e-4,
+            use_pretrain: bool = True,
+            freeze_backbone: bool = False,
+            train_arcloss=True):
         super(ArcPersonModel, self).__init__()
         self.num_classes = num_classes
         self.base_model = BaseModel(embd_shape, w_decay=w_decay, model=backbone,
                                     use_pretrain=use_pretrain, freeze_backbone=freeze_backbone)
-        self.archead = ArcHead(num_classes=num_classes, margin=margin, logist_scale=logist_scale)
-        self.normhead = NormHead(num_classes=num_classes, w_decay=w_decay)
         self.train_arcloss = train_arcloss
 
-    def set_train_arcloss(self):
-        self.train_arcloss = True
+        self.head = ArcHead(num_classes=num_classes, margin=margin, logist_scale=logist_scale) if train_arcloss else NormHead(num_classes=num_classes, w_decay=w_decay)
 
     def call(self, inputs: tf.Tensor, training: bool = None, mask: bool = None, **kwargs: Dict) -> tf.Tensor:
         embedding = self.base_model(inputs, training=training)
@@ -133,9 +162,9 @@ class ArcPersonModel(tf.keras.Model):
         with tf.GradientTape() as tape:
             y_pred = self(inputs=x, training=True)  # Forward pass
             if self.train_arcloss:
-                y_pred = self.archead(embedding=y_pred, labels=y, training=True)
+                y_pred = self.head(embedding=y_pred, labels=y, training=True)
             else:
-                y_pred = self.normhead(y_pred, training=True)
+                y_pred = self.head(y_pred, training=True)
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
             reg_loss = tf.reduce_sum(self.losses)
@@ -147,7 +176,7 @@ class ArcPersonModel(tf.keras.Model):
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         # Update metrics (includes the metric that tracks the loss)
-        self.compiled_metrics.update_state(y, y_pred)
+        self.compiled_metrics.update_state(one_hot_label, y_pred)
         # Return a dict mapping metric names to current value
         return {m.name: m.result() for m in self.metrics}
 
@@ -158,13 +187,13 @@ class ArcPersonModel(tf.keras.Model):
         # Compute predictions
         y_pred = self(inputs=x)  # Forward pass
         if self.train_arcloss:
-            y_pred = self.archead(embedding=y_pred, labels=y)
+            y_pred = self.head(embedding=y_pred, labels=y)
         else:
-            y_pred = self.normhead(y_pred)
+            y_pred = self.head(y_pred)
         # Updates the metrics tracking the loss
         self.compiled_loss(one_hot_label, y_pred, regularization_losses=self.losses)
         # Update the metrics.
-        self.compiled_metrics.update_state(y, y_pred)
+        self.compiled_metrics.update_state(one_hot_label, y_pred)
         # Return a dict mapping metric names to current value.
         # Note that it will include the loss (tracked in self.metrics).
         return {m.name: m.result() for m in self.metrics}

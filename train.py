@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, TerminateOnNaN, EarlyStopping
 from tensorflow.keras.experimental import LinearCosineDecay
 from tensorflow.keras.losses import CategoricalCrossentropy as CrossEntropy
-from tensorflow.keras.metrics import SparseCategoricalCrossentropy, SparseCategoricalAccuracy
+from tensorflow.keras.metrics import CategoricalCrossentropy, CategoricalAccuracy
 from tensorflow.keras.optimizers import Adam, SGD
 
 from config import cfg
@@ -35,7 +35,7 @@ class Trainer:
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False,
-                                    logist_scale=64)
+                                    train_arcloss=True, logist_scale=64)
         self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr, decay_steps=dataset_generator.dataset_size * cfg.warmup_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(
@@ -53,8 +53,8 @@ class Trainer:
                                                    save_freq="epoch", period=5)
 
     def compile(self):
-        self.model.compile(run_eagerly=True, optimizer=self.optimizer, loss=self.loss_fn,
-                           metrics=[SparseCategoricalCrossentropy(from_logits=True), SparseCategoricalAccuracy()])
+        self.model.compile(run_eagerly=False, optimizer=self.optimizer, loss=self.loss_fn,
+                           metrics=[CategoricalCrossentropy(from_logits=True), CategoricalAccuracy()])
 
         # load latest checkpoint
         latest = tf.train.latest_checkpoint("./checkpoint/{}".format(cfg.backbone))
@@ -66,23 +66,24 @@ class Trainer:
     def train_l1_softmax(self):
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.warmup_epochs,
                        callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(patience=5)])
-        self.model.save('./saved_model/{}'.format(cfg.backbone))
+                                  EarlyStopping(patience=5, restore_best_weights=True)])
+        self.model.base_model.save_weights('./weights/{}_softmax'.format(cfg.backbone))
+        self.model.base_model.save('./saved_model/{}_softmax'.format(cfg.backbone))
 
     def train_arcloss(self):
-        self.model.set_train_arcloss()
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
                        callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(patience=5)])
-        self.model.save('./saved_model/{}'.format(cfg.backbone))
+                                  EarlyStopping(patience=5, restore_best_weights=True)])
+        self.model.base_model.save_weights('./weights/{}_arcface'.format(cfg.backbone))
+        self.model.base_model.save('./saved_model/{}_arcface'.format(cfg.backbone))
 
     def evaluate(self):
         self.model.evaluate(self.dataset_eval, return_dict=True, callbacks=[self.arcface_tensorboard_callback])
-        self.model.save('./saved_model/{}'.format(cfg.backbone))
+        self.model.base_model.save('./saved_model/{}'.format(cfg.backbone))
 
     def main(self):
         self.compile()
-        self.train_l1_softmax()
+        #self.train_l1_softmax()
         self.train_arcloss()
         self.evaluate()
 
