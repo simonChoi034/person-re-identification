@@ -115,17 +115,9 @@ class OSBlock(Layer):
         self.conv2c = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=3)
         self.conv2d = LightConvStream(kernel_size=3, filters=self.mid_filters, depth=4)
         self.gate = ChannelGate(self.mid_filters, self.mid_filters)
-        self.conv3 = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
+        self.conv3 = MyConv2D(kernel_size=1, filters=filters, apply_activation=False, use_IN=use_IN)
         self.down_sample = MyConv2D(kernel_size=1, filters=filters, apply_activation=False)
         self.relu = ReLU()
-        self.use_IN = use_IN
-        self.norm = InstanceNormalization(
-            axis=3,
-            center=True,
-            scale=True,
-            beta_initializer="random_uniform",
-            gamma_initializer="random_uniform"
-        )
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         identity = self.down_sample(inputs, training=training)
@@ -137,9 +129,6 @@ class OSBlock(Layer):
         x2d = self.conv2d(x1, training=training)
         x2 = self.gate(x2a, training=training) + self.gate(x2b, training=training) + self.gate(x2c, training=training) + self.gate(x2d, training=training)
         x3 = self.conv3(x2, training=training)
-
-        if self.use_IN:
-            x3 = self.norm(x3, training=training)
 
         out = x3 + identity
 
