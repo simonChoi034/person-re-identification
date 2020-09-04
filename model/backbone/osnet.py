@@ -29,6 +29,5 @@ class OSNet(tf.keras.Model):
         x = self.reduction2(x, training=training)
         x = self.conv4(x, training=training)
         x = self.conv5(x, training=training)
-        x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
 
         return x

@@ -32,7 +32,7 @@ class MyConv2D(Layer):
         )
         self.activation = ReLU()
         self.apply_activation = apply_activation
-        self.apply_batchnorm = apply_norm
+        self.apply_norm = apply_norm
         self.norm = InstanceNormalization(
             axis=3,
             center=True,
@@ -42,7 +42,7 @@ class MyConv2D(Layer):
 
     def call(self, inputs: tf.Tensor, training: bool = False, **kwargs) -> tf.Tensor:
         x = self.conv2d(inputs)
-        if self.apply_batchnorm:
+        if self.apply_norm:
             x = self.norm(x, training=training)
 
         if self.apply_activation:
