@@ -1,16 +1,15 @@
 import argparse
 
 import tensorflow as tf
-from tensorflow.keras.callbacks import ModelCheckpoint, TerminateOnNaN, EarlyStopping
+from tensorflow.keras.callbacks import ModelCheckpoint, TerminateOnNaN, EarlyStopping, TensorBoard
 from tensorflow.keras.experimental import LinearCosineDecay
 from tensorflow.keras.losses import CategoricalCrossentropy as CrossEntropy
-from tensorflow.keras.metrics import CategoricalCrossentropy, CategoricalAccuracy
+from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.optimizers import Adam, SGD
 
 from config import cfg
 from dataset.dataset import Dataset, DatasetGenerator
 from model.model import ArcPersonModel
-from utils.tensorboard import LRTensorboard
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -38,15 +37,16 @@ class Trainer:
         self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False,
                                     train_arcloss=True, logist_scale=64)
         self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
-        self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr, decay_steps=dataset_generator.dataset_size * cfg.train_epochs / batch_size)
+        self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
+                                              decay_steps=dataset_generator.dataset_size * cfg.train_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(
             learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True, clipnorm=1)
 
-        self.softmax_tensorboard_callback = LRTensorboard(log_dir="./logs/{}_softmax".format(cfg.backbone),
+        self.softmax_tensorboard_callback = TensorBoard(log_dir="./logs/{}_softmax".format(cfg.backbone),
                                                         write_graph=True,
                                                         write_images=True, update_freq=cfg.step_to_log,
                                                         embeddings_freq=1, histogram_freq=1)
-        self.arcface_tensorboard_callback = LRTensorboard(log_dir="./logs/{}_arcface".format(cfg.backbone),
+        self.arcface_tensorboard_callback = TensorBoard(log_dir="./logs/{}_arcface".format(cfg.backbone),
                                                         write_graph=True,
                                                         write_images=True, update_freq=cfg.step_to_log,
                                                         embeddings_freq=1, histogram_freq=1)
@@ -84,7 +84,7 @@ class Trainer:
 
     def main(self):
         self.compile()
-        #self.train_l1_softmax()
+        # self.train_l1_softmax()
         self.train_arcloss()
         self.evaluate()
 
