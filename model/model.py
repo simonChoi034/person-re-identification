@@ -3,7 +3,7 @@ from typing import Dict
 
 import tensorflow as tf
 from tensorflow.keras.layers import BatchNormalization, Dense, Flatten, Dropout
-from tf_simple_metric_learning.layers import AdaCos, ArcFace, CircleLossCL
+from model.layer import AdaCos, ArcFace, CircleLossCL
 
 from model.backbone.osnet import OSNet
 
@@ -93,11 +93,11 @@ class ReIDModel(tf.keras.Model):
         self.base_model = BaseModel(embd_shape, w_decay=w_decay, model=backbone,
                                     use_pretrain=use_pretrain, freeze_backbone=freeze_backbone)
         if loss.lower() == "circle_loss":
-            self.head = CircleLossCL(num_classes=num_classes, margin=margin, scale=logist_scale)
+            self.head = CircleLossCL(num_classes=num_classes, margin=margin, scale=logist_scale, name="circle_loss")
         elif loss.lower() == "ada_cos":
-            self.head = AdaCos(num_classes=num_classes)
+            self.head = AdaCos(num_classes=num_classes, name="AdaCos")
         else:
-            self.head = ArcFace(num_classes=num_classes, margin=margin, scale=logist_scale)
+            self.head = ArcFace(num_classes=num_classes, margin=margin, scale=logist_scale, name="ArcFace")
 
     def call(self, inputs: tf.Tensor, training: bool = None, mask: bool = None, **kwargs: Dict) -> tf.Tensor:
         embedding = self.base_model(inputs, training=training)

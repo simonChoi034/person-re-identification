@@ -8,8 +8,8 @@ from model.layer import MyConv2D, OSBlock
 
 
 class OSNet(tf.keras.Model):
-    def __init__(self, layers: List[int], filters: List[int]):
-        super(OSNet, self).__init__()
+    def __init__(self, layers: List[int], filters: List[int], name="OSNet", **kwargs):
+        super(OSNet, self).__init__(name=name, **kwargs)
 
         self.conv1 = MyConv2D(kernel_size=7, filters=filters[0], strides=2, use_IN=True)
         self.max_pool = MaxPooling2D(pool_size=3, strides=2, padding='same')
