@@ -6,7 +6,7 @@ from typing import List, Tuple, Any
 import tensorflow as tf
 
 
-class DatasetGenerator:
+class LPWDatasetGenerator:
     def __init__(self, dataset_path: str):
         self.dataset_path = dataset_path
         self.image_paths = glob.glob(os.path.join(dataset_path, "*/*/*/*.jpg"))
@@ -47,7 +47,7 @@ class DatasetGenerator:
 
 
 class Dataset:
-    def __init__(self, generator: DatasetGenerator, image_size: List, batch_size: int, buffer_size: int,
+    def __init__(self, generator: LPWDatasetGenerator, image_size: List, batch_size: int, buffer_size: int,
                  prefetch_size: int, mode="train"):
         self.generator = generator
         self.image_size = image_size

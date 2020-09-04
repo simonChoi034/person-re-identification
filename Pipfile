@@ -12,6 +12,7 @@ keras = "*"
 tensorflow = "*"
 tensorflow-addons = "*"
 matplotlib = "*"
+tf-simple-metric-learning = "*"
 
 [requires]
 python_version = "3.7"

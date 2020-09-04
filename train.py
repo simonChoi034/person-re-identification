@@ -8,8 +8,8 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.optimizers import Adam, SGD
 
 from config import cfg
-from dataset.dataset import Dataset, DatasetGenerator
-from model.model import ArcPersonModel
+from dataset.dataset import Dataset, LPWDatasetGenerator
+from model.model import ReIDModel
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -26,7 +26,7 @@ if gpus:
 
 class Trainer:
     def __init__(self, dataset_path: str, batch_size: int):
-        dataset_generator = DatasetGenerator(dataset_path=dataset_path)
+        dataset_generator = LPWDatasetGenerator(dataset_path=dataset_path)
         self.dataset_train = Dataset(generator=dataset_generator, image_size=cfg.image_size, batch_size=batch_size,
                                      buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                      mode="train").create_dataset()
@@ -34,8 +34,7 @@ class Trainer:
                                     buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
-        self.model = ArcPersonModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False,
-                                    train_arcloss=True, logist_scale=64)
+        self.model = ReIDModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
         self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.train_epochs / batch_size)
