@@ -8,7 +8,7 @@ from model.layer import AdaCos, ArcFace, CircleLossCL
 from model.backbone.osnet import OSNet
 
 
-class BaseModel(tf.keras.Model):
+class BaseModel(tf.keras.layers.Layer):
     def __init__(self, embedding_shape: int, w_decay: float = 5e-4, model: str = "OSNet",
                  freeze_backbone: bool = False, use_pretrain: bool = True):
         super(BaseModel, self).__init__()

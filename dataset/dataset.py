@@ -6,67 +6,8 @@ from typing import List, Tuple, Any
 import tensorflow as tf
 
 
-class DatasetGenerator:
-    def __init__(self):
-        pass
-
-    def get_num_classes(self) -> int:
-        return 0
-
-    def gen_next_pair_eval(self):
-        pass
-
-    def gen_next_pair_train(self):
-        pass
-
-
-class MSMT17DatasetGenerator(DatasetGenerator):
-    def __init__(self, dataset_path: str, combine_all=False):
-        super(MSMT17DatasetGenerator, self).__init__()
-        self.dataset_path = dataset_path
-        self.train_images = glob.glob(os.path.join(dataset_path, "bounding_box_train", "*.jpg"))
-        self.eval_images = glob.glob(os.path.join(dataset_path, "bounding_box_test", "*.jpg"))
-        self.train_labels = self.set_labels(self.train_images)
-        self.eval_labels = self.set_labels(self.eval_images)
-
-        # combine training dataset
-        if combine_all:
-            self.combine_dataset()
-
-        self.dataset_size = len(self.train_images)
-
-        self.num_classes = len(set(self.train_labels))
-
-    def set_labels(self, image_list: List[str]) -> List[int]:
-        image_list = list(map(lambda x: x.split("/")[-1], image_list))
-        label_list = list(map(lambda x: int(x.split("_")[0]), image_list))
-        return label_list
-
-    def combine_dataset(self):
-        num_class_train = sorted(set(self.train_labels))[-1] + 1
-
-        extended_train_labels = list(map(lambda x: x + num_class_train, self.eval_labels))
-
-        self.train_images = self.train_images + self.eval_images
-        self.train_labels = self.train_labels + extended_train_labels
-        self.eval_images = []
-        self.eval_labels = []
-
-    def get_num_classes(self) -> int:
-        return self.num_classes
-
-    def gen_next_pair_eval(self):
-        for img_path, label in zip(self.eval_images, self.eval_labels):
-            yield img_path, label
-
-    def gen_next_pair_train(self):
-        for img_path, label in zip(self.train_images, self.train_labels):
-            yield img_path, label
-
-
-class LPWDatasetGenerator(DatasetGenerator):
-    def __init__(self, dataset_path: str, combine_all=False):
-        super(LPWDatasetGenerator, self).__init__()
+class LPWDatasetGenerator:
+    def __init__(self, dataset_path: str):
         self.dataset_path = dataset_path
         self.image_paths = glob.glob(os.path.join(dataset_path, "*/*/*/*.jpg"))
         self.dataset_size = len(self.image_paths)
@@ -74,24 +15,12 @@ class LPWDatasetGenerator(DatasetGenerator):
         random.shuffle(self.image_paths)
         self.set_labels()
 
-        # split train and test image if not combine all
-        if combine_all:
-            self.train_images = self.image_paths
-            self.eval_images = []
-        else:
-            self.split_train_data()
-
     def set_labels(self):
         image_list = list(map(lambda x: x.replace(self.dataset_path, ""), self.image_paths))
         label_list = list(map(lambda x: x.split("/")[-4:], image_list))
         label_list = sorted(list(set(map(lambda x: x[0] + "_" + x[2], label_list))))
         self.num_classes = len(label_list)
         self.label_mapping = {key: i for i, key in enumerate(label_list)}
-
-    def split_train_data(self):
-        index = int(self.dataset_size * self.train_ratio)
-        self.train_images = self.image_paths[:index]
-        self.eval_images = self.image_paths[index:]
 
     def get_num_classes(self) -> int:
         return self.num_classes
@@ -102,21 +31,23 @@ class LPWDatasetGenerator(DatasetGenerator):
         label_key = img_path[0] + "_" + img_path[2]
         return self.label_mapping[label_key]
 
-    def gen_next_pair_eval(self):
-        for img_path in self.eval_images:
+    def gen_next_pair_val(self):
+        index = int(self.dataset_size * self.train_ratio)
+        for img_path in self.image_paths[index:]:
             label = self.get_label(img_path)
 
             yield img_path, label
 
     def gen_next_pair_train(self):
-        for img_path in self.train_images:
+        index = int(self.dataset_size * self.train_ratio)
+        for img_path in self.image_paths[:index]:
             label = self.get_label(img_path)
 
             yield img_path, label
 
 
 class Dataset:
-    def __init__(self, generator: DatasetGenerator, image_size: List, batch_size: int, buffer_size: int,
+    def __init__(self, generator: LPWDatasetGenerator, image_size: List, batch_size: int, buffer_size: int,
                  prefetch_size: int, mode="train"):
         self.generator = generator
         self.image_size = image_size
@@ -141,7 +72,7 @@ class Dataset:
         return img, label
 
     def create_dataset(self) -> tf.data.Dataset:
-        gen_fn = self.generator.gen_next_pair_train if self.mode == "train" else self.generator.gen_next_pair_eval
+        gen_fn = self.generator.gen_next_pair_train if self.mode == "train" else self.generator.gen_next_pair_val
         dataset = tf.data.Dataset.from_generator(
             gen_fn,
             output_types=(tf.string, tf.int32)
