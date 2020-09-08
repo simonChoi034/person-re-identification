@@ -4,7 +4,6 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow.keras import Sequential
-from tensorflow.keras import layers
 from tensorflow.keras.layers import Layer, Conv2D, BatchNormalization, ReLU, LayerNormalization, Activation
 from tensorflow_addons.layers import InstanceNormalization
 

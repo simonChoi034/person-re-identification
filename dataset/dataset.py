@@ -10,9 +10,11 @@ class LPWDatasetGenerator:
     def __init__(self, dataset_path: str):
         self.dataset_path = dataset_path
         self.image_paths = glob.glob(os.path.join(dataset_path, "*/*/*/*.jpg"))
+        random.shuffle(self.image_paths)
+        
         self.dataset_size = len(self.image_paths)
         self.train_ratio = 0.8
-        random.shuffle(self.image_paths)
+
         self.set_labels()
 
     def set_labels(self):

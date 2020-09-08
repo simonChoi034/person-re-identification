@@ -34,21 +34,17 @@ class Trainer:
                                     buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                     mode="eval").create_dataset()
         self.num_classes = dataset_generator.get_num_classes()
-        self.model = ReIDModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
-        self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
+        self.model = ReIDModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False, loss=cfg.loss, logist_scale=cfg.loss_scale, margin=cfg.margin)
+        self.loss_fn = CrossEntropy(from_logits=True)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
                                               decay_steps=dataset_generator.dataset_size * cfg.train_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(
             learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True, clipnorm=1)
 
-        self.softmax_tensorboard_callback = TensorBoard(log_dir="./logs/{}_softmax".format(cfg.backbone),
-                                                        write_graph=True,
-                                                        write_images=True, update_freq=cfg.step_to_log,
-                                                        embeddings_freq=1, histogram_freq=1)
-        self.arcface_tensorboard_callback = TensorBoard(log_dir="./logs/{}_arcface".format(cfg.backbone),
-                                                        write_graph=True,
-                                                        write_images=True, update_freq=cfg.step_to_log,
-                                                        embeddings_freq=1, histogram_freq=1)
+        self.tensorboard_callback = TensorBoard(log_dir="./logs/{}_arcface".format(cfg.backbone),
+                                                write_graph=True,
+                                                write_images=True, update_freq=cfg.step_to_log,
+                                                embeddings_freq=1, histogram_freq=1)
         self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/cp.ckpt".format(cfg.backbone),
                                                    save_freq="epoch", period=5)
 
@@ -63,27 +59,19 @@ class Trainer:
             checkpoint_manager = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, net=self.model)
             checkpoint_manager.restore(latest)
 
-    def train_l1_softmax(self):
-        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.warmup_epochs,
-                       callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(patience=5, restore_best_weights=True)])
-        self.model.base_model.save_weights('./weights/{}_softmax'.format(cfg.backbone))
-        self.model.base_model.save('./saved_model/{}_softmax'.format(cfg.backbone))
-
     def train_arcloss(self):
         self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
-                       callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
+                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
                                   EarlyStopping(patience=5, restore_best_weights=True)])
         self.model.base_model.save_weights('./weights/{}_arcface'.format(cfg.backbone))
         self.model.base_model.save('./saved_model/{}_arcface'.format(cfg.backbone))
 
     def evaluate(self):
-        self.model.evaluate(self.dataset_eval, return_dict=True, callbacks=[self.arcface_tensorboard_callback])
+        self.model.evaluate(self.dataset_eval, return_dict=True, callbacks=[self.tensorboard_callback])
         self.model.base_model.save('./saved_model/{}'.format(cfg.backbone))
 
     def main(self):
         self.compile()
-        # self.train_l1_softmax()
         self.train_arcloss()
         self.evaluate()
 
