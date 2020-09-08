@@ -8,7 +8,7 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.optimizers import Adam, SGD
 
 from config import cfg
-from dataset.dataset import Dataset, LPWDatasetGenerator
+from dataset.dataset import Dataset, LPWDatasetGenerator, MSMT17DatasetGenerator
 from model.model import ReIDModel
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -25,30 +25,36 @@ if gpus:
 
 
 class Trainer:
-    def __init__(self, dataset_path: str, batch_size: int):
-        dataset_generator = LPWDatasetGenerator(dataset_path=dataset_path)
-        self.dataset_train = Dataset(generator=dataset_generator, image_size=cfg.image_size, batch_size=batch_size,
+    def __init__(self, source_dataset_path: str, target_dataset_path: str, batch_size: int):
+        # dataset for training
+        source_dataset_generator = MSMT17DatasetGenerator(dataset_path=source_dataset_path, combine_all=True)
+        self.dataset_train = Dataset(generator=source_dataset_generator, image_size=cfg.image_size,
+                                     batch_size=batch_size,
                                      buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
                                      mode="train").create_dataset()
-        self.dataset_eval = Dataset(generator=dataset_generator, image_size=cfg.image_size, batch_size=batch_size,
+        self.num_classes = source_dataset_generator.get_num_classes()
+
+        # dataset for evaluation
+        target_dataset_generator = LPWDatasetGenerator(dataset_path=target_dataset_path, combine_all=True)
+        self.dataset_eval = Dataset(generator=target_dataset_generator, image_size=cfg.image_size,
+                                    batch_size=batch_size,
                                     buffer_size=cfg.buffer_size, prefetch_size=cfg.prefetch_size,
-                                    mode="eval").create_dataset()
-        self.num_classes = dataset_generator.get_num_classes()
-        self.model = ReIDModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False)
+                                    mode="train").create_dataset()
+
+        # setup model
+        self.model = ReIDModel(num_classes=self.num_classes, backbone=cfg.backbone, use_pretrain=False, loss=cfg.loss,
+                               logist_scale=cfg.loss_scale, margin=cfg.margin)
         self.loss_fn = CrossEntropy(from_logits=True, label_smoothing=0.1)
         self.lr_scheduler = LinearCosineDecay(initial_learning_rate=cfg.lr,
-                                              decay_steps=dataset_generator.dataset_size * cfg.train_epochs / batch_size)
+                                              decay_steps=source_dataset_generator.dataset_size * cfg.train_epochs / batch_size)
         self.optimizer = Adam(learning_rate=self.lr_scheduler, clipnorm=1) if cfg.optimizer == "Adam" else SGD(
             learning_rate=self.lr_scheduler, momentum=0.9, nesterov=True, clipnorm=1)
 
-        self.softmax_tensorboard_callback = TensorBoard(log_dir="./logs/{}_softmax".format(cfg.backbone),
-                                                        write_graph=True,
-                                                        write_images=True, update_freq=cfg.step_to_log,
-                                                        embeddings_freq=1, histogram_freq=1)
-        self.arcface_tensorboard_callback = TensorBoard(log_dir="./logs/{}_arcface".format(cfg.backbone),
-                                                        write_graph=True,
-                                                        write_images=True, update_freq=cfg.step_to_log,
-                                                        embeddings_freq=1, histogram_freq=1)
+        # setup callback
+        self.tensorboard_callback = TensorBoard(log_dir="./logs/{}_arcface".format(cfg.backbone),
+                                                write_graph=True,
+                                                write_images=True, update_freq=cfg.step_to_log,
+                                                embeddings_freq=1, histogram_freq=1)
         self.checkpoint_callback = ModelCheckpoint(filepath="./checkpoint/{}/cp.ckpt".format(cfg.backbone),
                                                    save_freq="epoch", period=5)
 
@@ -63,40 +69,43 @@ class Trainer:
             checkpoint_manager = tf.train.Checkpoint(step=tf.Variable(1), optimizer=self.optimizer, net=self.model)
             checkpoint_manager.restore(latest)
 
-    def train_l1_softmax(self):
-        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.warmup_epochs,
-                       callbacks=[self.softmax_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
-                                  EarlyStopping(patience=5, restore_best_weights=True)])
-        self.model.base_model.save_weights('./weights/{}_softmax'.format(cfg.backbone))
-        self.model.base_model.save('./saved_model/{}_softmax'.format(cfg.backbone))
-
-    def train_arcloss(self):
-        self.model.fit(self.dataset_train, validation_data=self.dataset_eval, epochs=cfg.train_epochs,
-                       callbacks=[self.arcface_tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
+    def train(self):
+        self.model.fit(self.dataset_train, epochs=cfg.train_epochs,
+                       callbacks=[self.tensorboard_callback, self.checkpoint_callback, TerminateOnNaN(),
                                   EarlyStopping(patience=5, restore_best_weights=True)])
         self.model.base_model.save_weights('./weights/{}_arcface'.format(cfg.backbone))
         self.model.base_model.save('./saved_model/{}_arcface'.format(cfg.backbone))
 
     def evaluate(self):
-        self.model.evaluate(self.dataset_eval, return_dict=True, callbacks=[self.arcface_tensorboard_callback])
-        self.model.base_model.save('./saved_model/{}'.format(cfg.backbone))
+        embeddings = None
+        labels = None
+        # get predictions for all data
+        for eval_images, eval_labels in self.dataset_eval:
+            pred_embeddings = self.model.predict(eval_images)
+            if embeddings is None:
+                embeddings = pred_embeddings
+                labels = eval_labels
+            else:
+                embeddings = tf.concat([embeddings, pred_embeddings], axis=0)
+                labels = tf.concat([labels, eval_labels], axis=0)
 
     def main(self):
         self.compile()
-        # self.train_l1_softmax()
-        self.train_arcloss()
-        self.evaluate()
+        self.train()
+        # self.evaluate()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train detection model')
     parser.add_argument('-b', '--batch_size', type=int, default=cfg.batch_size, help="Batch size")
-    parser.add_argument('-d', '--dataset_path', type=str, help="path of dataset")
+    parser.add_argument('-s', '--source_dataset_path', type=str, help="path of source dataset")
+    parser.add_argument('-t', '--target_dataset_path', type=str, help="path of source dataset")
     args = parser.parse_args()
 
     trainer = Trainer(
         batch_size=args.batch_size,
-        dataset_path=args.dataset_path
+        source_dataset_path=args.source_dataset_path,
+        target_dataset_path=args.target_dataset_path
     )
 
     trainer.main()

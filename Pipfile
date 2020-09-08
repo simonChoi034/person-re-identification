@@ -12,6 +12,7 @@ keras = "*"
 tensorflow = "*"
 tensorflow-addons = "*"
 matplotlib = "*"
+scikit-learn = "*"
 
 [requires]
 python_version = "*"
